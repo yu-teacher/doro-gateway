@@ -1,0 +1,14 @@
+{
+  "name": "doro-bff-e2e",
+  "private": true,
+  "type": "module",
+  "description": "진짜 IAM + 진짜 BFF·게이트웨이 + 진짜 서비스 + 진짜 브라우저로 로그인 흐름을 끝까지 확인하는 통합 시험",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

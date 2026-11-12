@@ -1,0 +1,147 @@
+# 통합(E2E) 시험용 격리 스택: 진짜 IAM(auth) + Guard + Postgres + Redis + S3(목).
+# 개발·운영 스택과 컨테이너 이름·포트·볼륨이 겹치지 않는다(프로젝트 이름 doro-e2e, 볼륨 없음 = 내려가면 데이터도 사라진다).
+#   docker compose -p doro-e2e --env-file e2e.env -f compose.e2e.yml up -d --build
+name: doro-e2e
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: e2e-postgres
+    environment:
+      POSTGRES_DB: doro_iam
+      POSTGRES_USER: doro_admin
+      POSTGRES_PASSWORD: ${E2E_DB_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: doro_auth,doro_guard,service_blog,doro_bff,service_party,service_games
+    volumes:
+      - ${E2E_DORO_DIR:-../../Doro}/init-db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${E2E_PG_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doro_admin -d doro_iam"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: e2e-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  guard-api:
+    build:
+      context: ${E2E_DORO_DIR:-../../Doro}/guard
+    container_name: e2e-guard
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/doro_guard
+      SPRING_DATASOURCE_USERNAME: doro_admin
+      SPRING_DATASOURCE_PASSWORD: ${E2E_DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      PORT: 8081
+      GRPC_PORT: 9090
+      DORO_GUARD_SECURITY_MODE: "OFF"
+      DORO_GUARD_VALIDATION_MODE: WARN
+    ports:
+      - "127.0.0.1:${E2E_GUARD_HTTP_PORT}:8081"
+      - "127.0.0.1:${E2E_GUARD_GRPC_PORT}:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  auth-api:
+    build:
+      context: ${E2E_DORO_DIR:-../../Doro}/auth
+    container_name: e2e-auth
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/doro_auth
+      SPRING_DATASOURCE_USERNAME: doro_admin
+      SPRING_DATASOURCE_PASSWORD: ${E2E_DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # 기본은 IAM 자신의 주소. 외부 앱 시험(run-third-party.sh)은 운영처럼 한 주소(포털 개발 서버가 /oauth2·/.well-known 을 IAM 으로 넘김)를 발급자로 쓴다.
+      DORO_IAM_ISSUER: ${E2E_ISSUER:-http://localhost:${E2E_AUTH_PORT}}
+      DORO_GUARD_URL: http://guard-api:8081
+      DORO_IAM_ACCESS_TOKEN_TTL_SECONDS: ${E2E_ACCESS_TOKEN_TTL_SECONDS}
+      DORO_IAM_RATE_LIMIT_ENABLED: "false"
+      DORO_IAM_BOOTSTRAP_TOKEN: ${E2E_BOOTSTRAP_TOKEN}
+      DORO_IAM_INTERNAL_TOKENS: blog:${E2E_INTERNAL_TOKEN},party:${E2E_PARTY_INTERNAL_TOKEN},games:${E2E_GAMES_INTERNAL_TOKEN}
+      # 영구 탈퇴 시험(run-deleted-sync.sh)이 유예·주기를 줄일 수 있게 한다. 기본값은 운영과 같다(유예 30일, 1시간 주기).
+      DORO_IAM_ACCOUNT_DELETION_GRACE_DAYS: ${E2E_ACCOUNT_DELETION_GRACE_DAYS:-30}
+      DORO_IAM_ACCOUNT_DELETION_PURGE_INTERVAL_MS: ${E2E_ACCOUNT_PURGE_INTERVAL_MS:-3600000}
+      DORO_IAM_ACCOUNT_DELETION_PURGE_INITIAL_DELAY_MS: ${E2E_ACCOUNT_PURGE_INITIAL_DELAY_MS:-120000}
+      DORO_IAM_REFRESH_COOKIE_SECURE: "false"
+      DORO_OAUTH_CLIENT_REGISTRY_MODE: ENFORCE
+      DORO_OAUTH_CODE_STORE: auto
+      DORO_CORS_ALLOWED_ORIGIN_PATTERNS: http://localhost:*,http://127.0.0.1:*
+    ports:
+      - "127.0.0.1:${E2E_AUTH_PORT}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      guard-api:
+        condition: service_started
+
+  # --- 게이트웨이 모드(프로필 gateway): 로그인·세션·토큰 갱신을 서비스 밖의 BFF 가 맡고, nginx 가 쿠키를 Bearer 로 바꿔 서비스에 넘긴다 ---
+  bff:
+    profiles: ["gateway"]
+    build:
+      # 실행 이미지만 만든다: run.sh 가 먼저 jar 를 빌드한다(../build/libs)
+      context: ..
+      dockerfile: Dockerfile
+    container_name: e2e-bff
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/doro_bff
+      SPRING_DATASOURCE_USERNAME: doro_admin
+      SPRING_DATASOURCE_PASSWORD: ${E2E_DB_PASSWORD}
+      IAM_HOST: auth-api
+      IAM_PORT: 8080
+      DORO_IAM_ISSUER: http://localhost:${E2E_AUTH_PORT}
+      BFF_OAUTH_AUTHORIZE_URL: http://localhost:${E2E_PORTAL_PORT}/oauth2/authorize
+      BFF_COOKIE_SECURE: "false"
+      BFF_SESSION_KEY: ${E2E_BFF_SESSION_KEY}
+      BFF_DELETED_SYNC_ENABLED: "false"
+      # 액세스 토큰 수명이 20초라 기본 갱신 여유(60초)면 요청마다 갱신된다
+      DORO_BFF_REFRESH_MARGIN: PT5S
+      BLOG_OAUTH_REDIRECT_URI: http://localhost:${E2E_GATEWAY_PORT}/api/v1/bff/callback
+    ports:
+      - "127.0.0.1:${E2E_BFF_PORT}:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-api:
+        condition: service_started
+
+  gateway:
+    profiles: ["gateway"]
+    image: nginx:1.27-alpine
+    container_name: e2e-gateway
+    environment:
+      E2E_BLOG_PORT: ${E2E_BLOG_PORT}
+      NGINX_ENVSUBST_FILTER: ^E2E_
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${E2E_GATEWAY_PORT}:80"
+    depends_on:
+      bff:
+        condition: service_healthy
+
+  s3:
+    image: adobe/s3mock:latest
+    container_name: e2e-s3
+    environment:
+      initialBuckets: doro-blog-media,doro-party-media
+    ports:
+      - "127.0.0.1:${E2E_S3_PORT}:9090"

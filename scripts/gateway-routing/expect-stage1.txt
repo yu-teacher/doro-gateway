@@ -1,0 +1,28 @@
+# --- 기존 동작이 하나도 달라지지 않아야 한다
+GET /                                  200 doro-blog-web       /
+GET /@alice/my-post                    200 doro-blog-web       /@alice/my-post
+GET /tags?tag=java                     200 doro-blog-web       /tags?tag=java
+GET /api/v1/posts?page=0&size=1        200 doro-blog-backend   /api/v1/posts?page=0&size=1
+GET /api/v1/auth/session               200 auth-api
+GET /api/v1/users/me                   200 doro-blog-backend
+GET /login                             200 web
+GET /account                           200 web
+GET /portal                            200 web
+GET /oauth2/consent                    200 web
+GET /oauth2/authorize                  200 auth-api
+GET /.well-known/openid-configuration  200 auth-api
+GET /party/                            200 doro-party-web      /party/
+GET /party/api/v1/maps                 200 doro-party-api      /api/v1/maps
+GET /games/                            200 doro-games-web      /games/
+GET /menu/                             200 doro-menu           /
+GET /media/abc.png                     200 doro-minio          /doro-blog-media/abc.png
+GET /loki/api/v1/labels                200 loki-central        /loki/api/v1/labels
+# --- 새로 생기는 /blog 경로(접두사를 떼고 전달)
+GET /blog                              302 redirect:/blog/
+GET /blog/                             200 doro-blog-web       /
+GET /blog/assets/index-abc.js          200 doro-blog-web       /assets/index-abc.js
+GET /blog/@alice/my-post               200 doro-blog-web       /@alice/my-post
+GET /blog/api/v1/posts?page=0&size=1   200 doro-blog-backend   /api/v1/posts?page=0&size=1
+GET /blog/api/v1/bff/session           200 doro-blog-backend   /api/v1/bff/session
+GET /blog/api/v1/users/me              200 doro-blog-backend   /api/v1/users/me
+GET /blog/api/v1/posts/                200 doro-blog-backend   /api/v1/posts

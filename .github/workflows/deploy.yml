@@ -1,0 +1,43 @@
+name: Deploy
+
+# CI 가 main 에서 통과한 커밋만 서버(mini)의 셀프호스티드 러너가 배포한다(수동 실행은 workflow_dispatch).
+# 저장소 변수 CD_ENABLED=true 가 아니면 건너뛴다(러너를 등록하기 전에 작업이 대기열에 쌓이지 않게).
+# 공개 저장소이므로 pull_request 에는 절대 반응하지 않는다. 게이트웨이 nginx.conf 는 배포하지 않는다(사람이 apply-gateway-conf.sh 로 반영).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포가 겹치면 같은 컨테이너를 동시에 건드리므로 순서대로 하나씩 실행한다.
+concurrency:
+  group: bff-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy on the server
+    if: >-
+      vars.CD_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: self-hosted
+    timeout-minutes: 40
+    steps:
+      # settings.gradle 의 includeBuild('../Doro') 때문에 Doro 저장소가 형제 디렉터리로 필요하다(.doro-sdk-ref 의 태그).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: doro-gateway
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: sdk
+        run: echo "ref=$(tr -d '[:space:]' < doro-gateway/.doro-sdk-ref)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: yu-teacher/doro
+          ref: ${{ steps.sdk.outputs.ref }}
+          path: Doro
+      - run: doro-gateway/scripts/deploy-on-server.sh "$GITHUB_WORKSPACE/doro-gateway" "$GITHUB_WORKSPACE/Doro"

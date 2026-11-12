@@ -1,0 +1,52 @@
+# --- 메인 주소는 허브(포털)
+GET /                                  200 web                 /
+GET /robots.txt                        200 web                 /robots.txt
+GET /doro-logo.png                     200 doro-blog-web       /doro-logo.png
+GET /favicon.png                       200 doro-blog-web       /favicon.png
+# --- 옛 블로그 주소는 /blog 아래로 영구 이동(301)(쿼리 문자열 유지)
+GET /@alice/my-post                    301 redirect:/blog/@alice/my-post
+GET /alice                             301 redirect:/blog/alice
+GET /tags?tag=java                     301 redirect:/blog/tags?tag=java
+GET /search?q=a%20b                    301 redirect:/blog/search?q=a%20b
+GET /write                             301 redirect:/blog/write
+GET /developers                        301 redirect:/blog/developers
+# --- 블로그는 /blog 에서
+GET /blog                              302 redirect:/blog/
+GET /blog/                             200 doro-blog-web       /
+GET /blog/assets/index-abc.js          200 doro-blog-web       /assets/index-abc.js
+GET /blog/api/v1/posts?page=0&size=1   200 doro-blog-backend   /api/v1/posts?page=0&size=1
+GET /blog/api/v1/bff/callback?code=x   200 doro-blog-backend   /api/v1/bff/callback?code=x
+GET /blog/api/v1/users/me              200 doro-blog-backend   /api/v1/users/me
+# --- 포털/IAM 은 그대로이고, /assets/ 와 /api/v1/users/me 는 이제 포털/IAM 으로
+GET /login                             200 web
+GET /signup                            200 web
+GET /account                           200 web
+GET /logs                              200 web
+GET /oauth2/consent                    200 web
+GET /oauth2/authorize                  200 auth-api
+GET /.well-known/openid-configuration  200 auth-api
+GET /assets/index-portal.js            200 web                 /assets/index-portal.js
+GET /api/v1/users/me                   200 auth-api
+GET /api/v1/auth/session               200 auth-api
+# --- 호환: 옛 블로그 API 주소(API 키 사용자)는 계속 블로그 백엔드로
+GET /api/v1/posts?page=0&size=1        200 doro-blog-backend   /api/v1/posts?page=0&size=1
+# --- 다른 서비스는 그대로
+GET /party/                            200 doro-party-web      /party/
+GET /party/api/v1/maps                 200 doro-party-api      /api/v1/maps
+GET /games/                            200 doro-games-web      /games/
+GET /menu/                             200 doro-menu           /
+GET /media/abc.png                     200 doro-minio          /doro-blog-media/abc.png
+GET /loki/api/v1/labels                200 loki-central        /loki/api/v1/labels
+# --- 허브 PWA 루트 파일은 /blog 로 이동하지 않고 포털이 준다
+GET /sw.js                             200 web                 /sw.js
+GET /registerSW.js                     200 web                 /registerSW.js
+GET /workbox-9c191d2f.js               200 web                 /workbox-9c191d2f.js
+GET /manifest.webmanifest              200 web                 /manifest.webmanifest
+GET /icon-192.png                      200 web                 /icon-192.png
+GET /icon-512.png                      200 web                 /icon-512.png
+GET /apple-touch-icon.png              200 web                 /apple-touch-icon.png
+GET /favicon.svg                       200 web                 /favicon.svg
+# 허브 파일 이름과 닮았어도 다른 경로는 그대로 /blog 로 이동한다
+GET /sw.json                           301 redirect:/blog/sw.json
+GET /sw.js/x                           301 redirect:/blog/sw.js/x
+GET /index.html                        200 web                 /index.html

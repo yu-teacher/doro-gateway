@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:doro_bff_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+doro:
+  iam:
+    jwks-prefetch: false
+    revocation-check: "OFF"
+  bff:
+    cookie-secure: false
+    session-encryption-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    deleted-sync:
+      enabled: false
+    services:
+      blog:
+        redirect-uri: https://doro.example/blog/api/v1/bff/callback
+        web-base-path: /blog
+      party:
+        redirect-uri: https://doro.example/party/api/v1/bff/callback
+      games:
+        redirect-uri: https://doro.example/games/api/v1/bff/callback

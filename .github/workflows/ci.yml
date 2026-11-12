@@ -1,0 +1,52 @@
+name: CI
+
+# main 푸시와 PR 마다 BFF 시험과 게이트웨이 라우팅 시험을 돌린다. 배포는 하지 않는다(main 에서 통과한 뒤 deploy.yml 이 맡는다).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bff:
+    name: BFF tests (H2 + PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # settings.gradle 의 includeBuild('../Doro') 때문에 Doro 저장소가 형제 디렉터리로 필요하다
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          path: doro-gateway
+      # Doro SDK 는 .doro-sdk-ref 에 적은 태그로 고정한다(Doro main 이 바뀌어도 이 빌드는 그대로). 올릴 때는 그 파일만 바꾼다.
+      - id: sdk
+        run: echo "ref=$(tr -d '[:space:]' < doro-gateway/.doro-sdk-ref)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: yu-teacher/doro
+          ref: ${{ steps.sdk.outputs.ref }}
+          path: Doro
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+      - run: scripts/ci-test.sh
+        working-directory: doro-gateway
+
+  gateway:
+    name: Gateway routing tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # 게이트웨이 설정(nginx)의 라우팅 결과를 가짜 업스트림으로 시험한다: 설정이 시작되는지(nginx -t 포함), 각 경로가 기대한 업스트림·경로·상태로 가는지.
+      # 배포 때 서버에 반영하는 파일이 아니라 저장소 사본을 검증한다(서버 반영은 scripts/apply-gateway-conf.sh, 사람이 한다).
+      - run: scripts/test-gateway-routing.sh gateway/nginx.conf scripts/gateway-routing/expect-current.txt
+      - name: Shell syntax
+        run: for f in scripts/*.sh e2e/run.sh; do bash -n "$f"; done

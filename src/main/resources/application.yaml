@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: doro-bff
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/doro_bff}
+    username: ${SPRING_DATASOURCE_USERNAME:doro_admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:doro_secret}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    table: bff_schema_history
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8085}
+  forward-headers-strategy: none
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+doro:
+  # 토큰 검증(SDK). 서비스별 OAuth 클라이언트가 받은 토큰만 받는다.
+  iam:
+    jwks-uri: ${DORO_IAM_JWKS_URI:http://${IAM_HOST:localhost}:${IAM_PORT:28080}/.well-known/jwks.json}
+    issuer: ${DORO_IAM_ISSUER:https://auth.doro.local}
+    revocation-check: ${DORO_IAM_REVOCATION_CHECK:ENFORCE}
+    oauth-client-ids: ${DORO_BFF_CLIENT_IDS:doro-blog,doro-party,doro-games,doro-interview}
+    internal-url: http://${IAM_HOST:localhost}:${IAM_PORT:28080}
+    # IAM 의 DORO_IAM_INTERNAL_TOKENS 에 'bff:<이 토큰>' 으로 등록한다(탈퇴 동기화용). 값은 환경변수로만 준다.
+    internal-token: ${DORO_IAM_INTERNAL_TOKEN:}
+  guard:
+    enabled: false
+  bff:
+    authorize-url: ${BFF_OAUTH_AUTHORIZE_URL:http://localhost:28080/oauth2/authorize}
+    token-url: ${BFF_OAUTH_TOKEN_URL:http://${IAM_HOST:localhost}:${IAM_PORT:28080}/oauth2/token}
+    revoke-url: ${BFF_OAUTH_REVOKE_URL:http://${IAM_HOST:localhost}:${IAM_PORT:28080}/oauth2/revoke}
+    cookie-secure: ${BFF_COOKIE_SECURE:true}
+    # 저장하는 토큰을 암호화하는 키(base64 32바이트). 기본값 없음: openssl rand -base64 32
+    session-encryption-key: ${BFF_SESSION_KEY}
+    deleted-sync:
+      enabled: ${BFF_DELETED_SYNC_ENABLED:true}
+    # 서비스 이름은 게이트웨이가 X-Doro-Service 로 넘기는 값이다. 쿠키 이름·경로·redirect-uri 는 서비스가 지금 쓰는 값과 같게 둔다
+    # (그래야 IAM 의 redirect_uri 등록과 브라우저의 쿠키가 그대로 맞는다).
+    services:
+      blog:
+        client-id: ${BLOG_OAUTH_CLIENT_ID:doro-blog}
+        cookie-name: doro_blog_session
+        login-cookie-name: doro_blog_login
+        csrf-header: X-Blog-Csrf
+        cookie-path: "/"
+        web-base-path: ${BLOG_WEB_BASE_PATH:}
+        redirect-uri: ${BLOG_OAUTH_REDIRECT_URI:http://localhost:5173/api/v1/bff/callback}
+      party:
+        client-id: ${PARTY_OAUTH_CLIENT_ID:doro-party}
+        cookie-name: doro_party_session
+        login-cookie-name: doro_party_login
+        csrf-header: X-Party-Csrf
+        cookie-path: ${PARTY_WEB_BASE_PATH:/party}
+        web-base-path: ${PARTY_WEB_BASE_PATH:/party}
+        return-path-relative-to-web-base: true
+        redirect-uri: ${PARTY_OAUTH_REDIRECT_URI:http://localhost:3005/party/api/v1/bff/callback}
+      games:
+        client-id: ${GAMES_OAUTH_CLIENT_ID:doro-games}
+        cookie-name: doro_games_session
+        login-cookie-name: doro_games_login
+        csrf-header: X-Games-Csrf
+        cookie-path: ${GAMES_WEB_BASE_PATH:/games}
+        web-base-path: ${GAMES_WEB_BASE_PATH:/games}
+        return-path-relative-to-web-base: true
+        redirect-uri: ${GAMES_OAUTH_REDIRECT_URI:http://localhost:5173/api/v1/bff/callback}
+      interview:
+        client-id: ${INTERVIEW_OAUTH_CLIENT_ID:doro-interview}
+        cookie-name: doro_interview_session
+        login-cookie-name: doro_interview_login
+        csrf-header: X-Interview-Csrf
+        cookie-path: ${INTERVIEW_WEB_BASE_PATH:/interview}
+        web-base-path: ${INTERVIEW_WEB_BASE_PATH:/interview}
+        return-path-relative-to-web-base: true
+        redirect-uri: ${INTERVIEW_OAUTH_REDIRECT_URI:http://localhost:3007/interview/api/v1/bff/callback}

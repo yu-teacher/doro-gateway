@@ -1,0 +1,8 @@
+rootProject.name = 'doro-bff'
+
+// Doro SDK(토큰 검증)는 형제 디렉터리 ../Doro 의 소스로 빌드한다. CI·배포는 .doro-sdk-ref 의 태그로 Doro 를 체크아웃한다(서비스 저장소와 같은 방식).
+includeBuild('../Doro') {
+    dependencySubstitution {
+        substitute module('com.hunnit-beasts:doro-sdk') using project(':sdk')
+    }
+}

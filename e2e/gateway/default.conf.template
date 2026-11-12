@@ -1,0 +1,73 @@
+# E2E 게이트웨이: 운영 게이트웨이(gateway/nginx.conf)의 BFF 연동 규칙을 블로그 하나에 대해 그대로 옮긴 것.
+# 규칙이 바뀌면 운영 쪽(gateway/nginx.conf 의 "BFF(auth_request)" 구간)과 같이 고친다. ${E2E_*} 는 컨테이너가 기동할 때 채운다.
+
+upstream blog_api_upstream { server host.docker.internal:${E2E_BLOG_PORT}; }
+upstream bff_upstream      { server bff:8085; }
+
+# 쿠키가 있으면 BFF 가 돌려준 토큰으로 Authorization 을 덮어쓴다(클라이언트가 보낸 Authorization 은 버린다).
+# BFF 토큰이 없으면(쿠키 없음·익명) 클라이언트가 보낸 값(API 키, Bearer 직접 호출)을 그대로 둔다. 값이 비면 헤더가 아예 나가지 않는다.
+map $bff_token $bff_authorization {
+    ""      $http_authorization;
+    default "Bearer $bff_token";
+}
+
+server {
+    listen 80;
+
+    # --- BFF: 로그인·콜백·로그아웃은 BFF 가 처리한다(브라우저가 보는 주소와 쿠키 경로는 그대로) ---
+    location = /api/v1/bff/login {
+        proxy_pass http://bff_upstream/bff/blog/login;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+    location = /api/v1/bff/callback {
+        proxy_pass http://bff_upstream/bff/blog/callback;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+    location = /api/v1/bff/logout {
+        proxy_pass http://bff_upstream/bff/blog/logout;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+
+    # --- auth_request 대상(내부 전용): 쿠키가 있을 때만 BFF 를 부른다. 쿠키가 없으면 BFF 가 죽어 있어도 공개 요청은 영향이 없다 ---
+    location = /_bff_auth_blog {
+        internal;
+        if ($cookie_doro_blog_session = "") { return 204; }
+        proxy_pass http://bff_upstream/internal/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        # upstream 이름(bff_upstream)의 밑줄이 Host 로 나가면 Tomcat 이 400 으로 거부하므로 원래 Host 를 전달한다.
+        proxy_set_header Host $host;
+        proxy_set_header X-Doro-Service blog;
+        proxy_set_header X-Original-Method $request_method;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 6s;
+    }
+
+    # --- 서비스 API: BFF 가 쿠키를 토큰으로 바꿔 주면 Bearer 로 붙여 서비스에 넘긴다 ---
+    location /api/ {
+        auth_request /_bff_auth_blog;
+        auth_request_set $bff_token $upstream_http_x_doro_access_token;
+        error_page 403 = @bff_forbidden;
+        error_page 500 = @bff_unavailable;
+
+        proxy_pass http://blog_api_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Authorization $bff_authorization;
+    }
+
+    location @bff_forbidden {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 403 '{"success":false,"code":"AUTH-403-03","message":"요청을 확인할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.","status":403}';
+    }
+    location @bff_unavailable {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After "5" always;
+        return 503 '{"success":false,"code":"AUTH-503-02","message":"로그인 서버를 잠시 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.","status":503}';
+    }
+}

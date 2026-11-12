@@ -1,0 +1,83 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.hunnit-beasts'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.compilerArgs << '-parameters'
+}
+
+dependencies {
+	// 토큰 검증·탈퇴 동기화는 Doro SDK 가 맡는다(settings.gradle 의 includeBuild 로 ../Doro 의 sdk 를 쓴다).
+	implementation 'com.hunnit-beasts:doro-sdk'
+
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.flywaydb:flyway-core'
+	implementation 'org.flywaydb:flyway-database-postgresql'
+	runtimeOnly 'org.postgresql:postgresql'
+	testRuntimeOnly 'com.h2database:h2'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	maxHeapSize = '1024m'
+}
+
+// H2 에서만 의미 있는 시험(BffMigrationSchemaValidationTest: 접속 주소가 H2 로 고정이라 PostgreSQL 단계가 제외한다)만 실행한다.
+// CI 는 나머지 H2 시험을 되풀이하지 않는다(testOnPostgres 가 같은 시험을 실제 DB 로 수행). H2 에서만 도는 시험을 새로 만들면 여기에도 넣는다.
+tasks.register('testH2Only', Test) {
+	description = 'H2 에서만 의미 있는 시험만 실행한다(CI 의 H2 단계)'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	maxHeapSize = '1024m'
+	filter { includeTestsMatching '*MigrationSchemaValidationTest' }
+}
+
+// auth/guard 와 같은 방식: 같은 테스트를 실제 PostgreSQL(Flyway + ddl-auto=validate)로 다시 실행한다. scripts/ci-test.sh 가 호출한다.
+tasks.register('testOnPostgres', Test) {
+	description = 'Runs the whole test suite against a real PostgreSQL (Flyway + ddl-auto=validate)'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	maxHeapSize = '1024m'
+	shouldRunAfter tasks.named('test')
+	filter { excludeTestsMatching '*MigrationSchemaValidationTest' }
+	doFirst {
+		def pgUrl = System.getenv('TEST_PG_URL')
+		if (!pgUrl) {
+			throw new GradleException('TEST_PG_URL 이 필요하다. 예) jdbc:postgresql://localhost:5432/postgres (scripts/ci-test.sh pg 참고)')
+		}
+		def sep = pgUrl.contains('?') ? '&' : '?'
+		environment 'SPRING_DATASOURCE_URL', pgUrl + sep + 'currentSchema=suite_bff'
+		environment 'SPRING_DATASOURCE_USERNAME', System.getenv('TEST_PG_USER') ?: 'postgres'
+		environment 'SPRING_DATASOURCE_PASSWORD', System.getenv('TEST_PG_PASSWORD') ?: ''
+		environment 'SPRING_DATASOURCE_DRIVER_CLASS_NAME', 'org.postgresql.Driver'
+		environment 'SPRING_JPA_HIBERNATE_DDL_AUTO', 'validate'
+		environment 'SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT', 'org.hibernate.dialect.PostgreSQLDialect'
+		environment 'SPRING_FLYWAY_ENABLED', 'true'
+	}
+}
