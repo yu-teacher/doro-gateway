@@ -41,6 +41,7 @@ GET /sw.js                             200 web                 /sw.js
 GET /registerSW.js                     200 web                 /registerSW.js
 GET /workbox-9c191d2f.js               200 web                 /workbox-9c191d2f.js
 GET /manifest.webmanifest              200 web                 /manifest.webmanifest
+GET /manifest-dev.webmanifest          200 web                 /manifest-dev.webmanifest
 GET /icon-192.png                      200 web                 /icon-192.png
 GET /icon-512.png                      200 web                 /icon-512.png
 GET /apple-touch-icon.png              200 web                 /apple-touch-icon.png
